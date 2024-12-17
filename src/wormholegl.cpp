@@ -12,13 +12,19 @@
 #include <chrono>
 #include <cmath>
 
+static char *pa_device = NULL;
+
 namespace Wormhole {
 auto InitCommandLine() {
-  CommandLineArgs["-v"] = []() {
+  CommandLineArgs["-v"] = [](char *) {
     std::cout << VERSION_BANNER << std::endl;
     exit(0);
   };
+  CommandLineArgs["-d"] = [](char *arg) {
+    pa_device = arg;
+  };
   CommandLineArgs["--version"] = CommandLineArgs["-v"];
+  CommandLineArgs["--device"] = CommandLineArgs["-d"];
 }
 auto CheckCommandLineArgs(int argc, char *argv[]) {
   InitCommandLine(); // Initialize the map with arguments
@@ -27,7 +33,7 @@ auto CheckCommandLineArgs(int argc, char *argv[]) {
 
     // Check if the command exists in the map
     if (CommandLineArgs.find(command) != CommandLineArgs.end()) {
-      CommandLineArgs[command](); // Call the associated function
+      CommandLineArgs[command](argv[i + 1]); // Call the associated function
     } else {
       std::cerr << "wormholegl: invalid argument: " << command << std::endl;
     }
@@ -37,20 +43,27 @@ namespace Pulse {
 pa_simple *init_pulse_audio(int &error) {
   // Traditional initialization instead of designated initializer
   static const pa_sample_spec sampleSpec = {
-      PA_SAMPLE_S16LE, // format
-      48000,           // rate
-      2                // channels
+    PA_SAMPLE_S16LE, // format
+    48000,           // rate
+    2                // channels
+  };
+  static const struct pa_buffer_attr pa_atrrs = {
+    (uint32_t) -1,   // maxlength - Maximum length of the buffer in bytes.
+    (uint32_t) -1,   // tlength - Playback only: target length of the buffer.
+    (uint32_t) -1,   // prebuf - Playback only: pre-buffering.
+    (uint32_t) -1,   // minreq - Playback only: minimum request.
+    (uint32_t) 64               // fragsize - Recording only: fragment size.
   };
 
   pa_simple *paStream =
       pa_simple_new(nullptr,          // Use default server
                     "AudioCapture",   // Application name
                     PA_STREAM_RECORD, // Record stream
-                    nullptr,          // Use default device
+                    pa_device,          // Use default device
                     "Recording",      // Stream description
                     &sampleSpec,      // Sample format
                     nullptr,          // Use default channel map
-                    nullptr,          // Use default buffering attributes
+                    &pa_atrrs,  // Use default buffering attributes
                     &error);
 
   if (!paStream) {
@@ -63,7 +76,7 @@ pa_simple *init_pulse_audio(int &error) {
 } // init_pulse_audio
 auto process_audio(pa_simple *paStream) {
   const size_t bufferSize = 64;              // Number of bytes per read
-  std::vector<int16_t> buffer(bufferSize * 2); // 16-bit samples (2 bytes each)
+  std::vector<uint8_t> buffer(bufferSize); // 16-bit samples (2 bytes each)
   int error;
 
   std::cout << "Listening to audio input (Ctrl+C to stop)...\n";
@@ -78,16 +91,16 @@ auto process_audio(pa_simple *paStream) {
     // Process and print the samples
     for (size_t i = 0; i < buffer.size(); i++) {
       // Normalize sample to [-1.0, 1.0]
-      float value = buffer[i] / 32768.0f; // 16-bit signed range
-      std::cout << std::fixed << std::setprecision(3) << std::string(value >= 0 ? " " : "") << value << " ";
+      auto value = buffer[i] / 255.0f; // 16-bit signed range
+      std::cout << std::fixed << std::setprecision(7) << value << " ";
       if (i == 20)
         break; // Print only the first 20 samples
     }
     std::cout << std::endl;
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    if ((1000000 / 48000) * 64 > duration.count())
-      usleep((1000000 / 48000) * 64 - duration.count());
+    if ((1000000 / 48000) * (64 / 8) > duration.count())
+      usleep((1000000 / 48000) * (64 / 8) - duration.count());
   }
 } // process_audio
 auto cleanup_pulse_audio(pa_simple *paStream) {
