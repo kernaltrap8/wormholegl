@@ -8,6 +8,8 @@
 */
 
 #include "wormholegl.hpp"
+#include <iomanip>
+#include <chrono>
 #include <cmath>
 
 namespace Wormhole {
@@ -36,8 +38,8 @@ pa_simple *init_pulse_audio(int &error) {
   // Traditional initialization instead of designated initializer
   static const pa_sample_spec sampleSpec = {
       PA_SAMPLE_S16LE, // format
-      44100,           // rate
-      1                // channels
+      48000,           // rate
+      2                // channels
   };
 
   pa_simple *paStream =
@@ -60,13 +62,13 @@ pa_simple *init_pulse_audio(int &error) {
   return paStream;
 } // init_pulse_audio
 auto process_audio(pa_simple *paStream) {
-  const size_t bufferSize = 1024;              // Number of bytes per read
-  std::vector<int16_t> buffer(bufferSize / 2); // 16-bit samples (2 bytes each)
+  const size_t bufferSize = 64;              // Number of bytes per read
+  std::vector<int16_t> buffer(bufferSize * 2); // 16-bit samples (2 bytes each)
   int error;
 
   std::cout << "Listening to audio input (Ctrl+C to stop)...\n";
-
   while (keep_running) {
+    auto start = std::chrono::high_resolution_clock::now();
     // Read audio data into buffer
     if (pa_simple_read(paStream, buffer.data(), bufferSize, &error) < 0) {
       std::cerr << "Failed to read data: " << pa_strerror(error) << std::endl;
@@ -77,11 +79,15 @@ auto process_audio(pa_simple *paStream) {
     for (size_t i = 0; i < buffer.size(); i++) {
       // Normalize sample to [-1.0, 1.0]
       float value = buffer[i] / 32768.0f; // 16-bit signed range
-      std::cout << value << " ";
-      if (i > 20)
+      std::cout << std::fixed << std::setprecision(3) << std::string(value >= 0 ? " " : "") << value << " ";
+      if (i == 20)
         break; // Print only the first 20 samples
     }
     std::cout << std::endl;
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    if ((1000000 / 48000) * 64 > duration.count())
+      usleep((1000000 / 48000) * 64 - duration.count());
   }
 } // process_audio
 auto cleanup_pulse_audio(pa_simple *paStream) {
