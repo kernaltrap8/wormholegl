@@ -20,10 +20,10 @@
 
 volatile sig_atomic_t keep_running = 1;
 
-void handle_signal(int sig) { keep_running = 0; }
+void handle_signal(int) { keep_running = 0; }
 
 namespace Wormhole {
-std::unordered_map<std::string, void (*)()> CommandLineArgs;
+std::unordered_map<std::string, void (*)(char *arg)> CommandLineArgs;
 auto CheckCommandLineArgs(int argc, char *argv[]);
 // This will be called within Wormhole::CheckCommandLineArgs
 auto InitCommandLine();
